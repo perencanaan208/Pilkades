@@ -53,11 +53,6 @@
   #error-box.show { display: flex; }
   #error-box h1 { font-size: 16px; color: #292524; margin: 0; }
   #error-box p { font-size: 13px; color: #78716c; margin: 0; max-width: 360px; }
-  #error-box a {
-    margin-top: 6px; display: inline-block; padding: 8px 16px;
-    background: #292524; color: #fff; border-radius: 8px;
-    text-decoration: none; font-size: 13px;
-  }
 </style>
 </head>
 <body>
@@ -68,9 +63,8 @@
   </div>
 
   <div id="error-box">
-    <h1>Aplikasi tidak dapat dimuat</h1>
-    <p>Periksa koneksi internet Anda, atau buka aplikasi langsung lewat tautan di bawah ini.</p>
-    <a id="direct-link" href="#" target="_blank" rel="noopener">Buka Aplikasi Langsung</a>
+    <h1>Pengaturan belum lengkap</h1>
+    <p>URL aplikasi belum diatur.</p>
   </div>
 
   <div id="frame-wrap">
@@ -87,14 +81,12 @@
 
     const frame = document.getElementById("app-frame");
     const loader = document.getElementById("loader");
+    const loaderText = loader.querySelector("p");
     const errorBox = document.getElementById("error-box");
-    const directLink = document.getElementById("direct-link");
 
     // Boleh override sementara lewat ?src= untuk keperluan tes tanpa ubah file.
     const params = new URLSearchParams(window.location.search);
     const targetUrl = params.get("src") || GAS_APP_URL;
-
-    directLink.href = targetUrl;
 
     if (!targetUrl || targetUrl.indexOf("GANTI_DENGAN_URL") !== -1) {
       loader.classList.add("hide");
@@ -103,24 +95,42 @@
         "Buka index.html lalu ganti nilai GAS_APP_URL dengan URL Web App Apps Script Anda.";
       errorBox.classList.add("show");
     } else {
-      let settled = false;
+      // Muat otomatis; kalau iframe belum juga "load" dalam batas waktu
+      // (jaringan lambat/putus, Apps Script sedang "cold start", dsb),
+      // otomatis coba muat ulang sendiri — tanpa perlu klik apa pun dan
+      // tanpa menampilkan pilihan buka manual.
+      const BATAS_WAKTU_MS = 15000;
+      let berhasil = false;
+      let percobaan = 0;
+      let timer = null;
+
+      function muat() {
+        if (berhasil) return;
+        percobaan += 1;
+        loaderText.textContent =
+          percobaan === 1 ? "Memuat aplikasi\u2026" : "Menyambung ulang\u2026 (percobaan ke-" + percobaan + ")";
+        // Parameter _r hanya penanda supaya browser benar-benar memuat ulang
+        // (bukan memakai hasil gagal yang tersimpan); diabaikan oleh Apps Script.
+        const pemisah = targetUrl.indexOf("?") === -1 ? "?" : "&";
+        frame.src = percobaan === 1 ? targetUrl : targetUrl + pemisah + "_r=" + Date.now();
+        clearTimeout(timer);
+        timer = setTimeout(muat, BATAS_WAKTU_MS);
+      }
 
       frame.addEventListener("load", function () {
-        settled = true;
+        if (!frame.src || frame.src === "about:blank") return;
+        berhasil = true;
+        clearTimeout(timer);
         loader.classList.add("hide");
         frame.classList.add("ready");
       });
 
-      // Jika dalam 12 detik iframe belum juga "load" (mis. diblokir jaringan),
-      // tampilkan pesan error dengan tautan langsung.
-      setTimeout(function () {
-        if (!settled) {
-          loader.classList.add("hide");
-          errorBox.classList.add("show");
-        }
-      }, 12000);
+      // Begitu koneksi internet kembali, langsung coba lagi (tidak menunggu batas waktu).
+      window.addEventListener("online", function () {
+        if (!berhasil) muat();
+      });
 
-      frame.src = targetUrl;
+      muat();
     }
   </script>
 </body>
